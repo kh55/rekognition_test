@@ -1,6 +1,216 @@
 # AWS Rekognition 顔認識比較システム
 
-このシステムはAWS Rekognitionを使用して画像内の顔を比較します。集合写真の中に特定の人物が存在するかを検出することができます。
+## システム概要
+
+このシステムは、AWS Rekognitionを使用して大量の集合写真から特定の人物を検索するためのソリューションです。
+
+### 主な機能
+- 個人の顔写真と集合写真の比較
+- 大量の写真の一括処理（500枚/バッチ）
+- Step Functionsによる並列処理
+- 処理結果のS3への保存
+
+### 処理フロー
+1. 入力
+   - 検索対象の個人写真（1枚）
+   - 検索先の集合写真（最大500枚）
+
+2. 処理
+   - Step Functionsによるワークフロー管理
+   - ECSによる分散処理
+   - Rekognitionによる顔認識・比較
+
+3. 出力
+   - 検出結果のJSONファイル
+   - マッチした写真の一覧
+
+### アーキテクチャ
+
+```mermaid
+graph TB
+    subgraph Input
+        U[User] --> S3_1[S3 Input Bucket]
+    end
+
+    subgraph Processing
+        SF[Step Functions] --> ECS
+        ECS --> R[Rekognition]
+        R --> ECS
+        S3_1 --> ECS
+    end
+
+    subgraph Output
+        ECS --> S3_2[S3 Output Bucket]
+        S3_2 --> U
+    end
+
+    subgraph Monitoring
+        CW[CloudWatch] --> SF
+        CW --> ECS
+    end
+
+    subgraph CI/CD
+        GH[GitHub] --> |Actions| ECR
+        ECR --> ECS
+    end
+
+    classDef aws fill:#FF9900,stroke:#232F3E,stroke-width:2px;
+    classDef external fill:#85B3D1,stroke:#232F3E,stroke-width:2px;
+    
+    class S3_1,S3_2,SF,ECS,R,CW,ECR aws;
+    class U,GH external;
+```
+
+### システムコンポーネント図
+
+```mermaid
+graph LR
+    subgraph AWS Cloud
+        subgraph VPC
+            subgraph Public Subnet
+                ALB[Application Load Balancer]
+            end
+            
+            subgraph Private Subnet
+                ECS[ECS Fargate]
+                ECS --> R[Rekognition]
+            end
+        end
+        
+        S3[S3 Buckets]
+        SF[Step Functions]
+        ECR[ECR]
+        CW[CloudWatch]
+        
+        SF --> ECS
+        ECS --> S3
+        ECR --> ECS
+        CW --> SF
+        CW --> ECS
+    end
+    
+    Dev[Developer] --> |Git Push| GH[GitHub]
+    GH --> |Actions| ECR
+    User --> ALB
+    
+    classDef aws fill:#FF9900,stroke:#232F3E,stroke-width:2px;
+    classDef external fill:#85B3D1,stroke:#232F3E,stroke-width:2px;
+    
+    class S3,SF,ECS,R,ECR,CW,ALB aws;
+    class Dev,User,GH external;
+```
+
+### デプロイメントフロー
+
+```mermaid
+sequenceDiagram
+    participant Dev as Developer
+    participant GH as GitHub
+    participant ECR as ECR
+    participant CDK as AWS CDK
+    participant AWS as AWS Cloud
+
+    Dev->>GH: Git Push
+    activate GH
+    GH->>GH: Run Tests
+    GH->>ECR: Push Docker Image
+    GH->>CDK: Deploy Infrastructure
+    CDK->>AWS: Update Resources
+    AWS-->>GH: Deployment Complete
+    deactivate GH
+    GH-->>Dev: Notification
+```
+
+## 技術スタック
+
+### インフラストラクチャ
+- AWS CDK: インフラのコード化
+- Amazon S3: 画像ストレージ
+- Amazon ECS: コンテナ実行環境
+- AWS Step Functions: ワークフロー管理
+- Amazon Rekognition: 顔認識API
+
+### アプリケーション
+- Go: バックエンド処理
+- Docker: コンテナ化
+- GitHub Actions: CI/CD
+
+### 開発ツール
+- Git: バージョン管理
+- Visual Studio Code: 推奨IDE
+- AWS CLI: AWSリソース管理
+
+## システムの特徴
+
+### スケーラビリティ
+- ECSによる自動スケーリング
+- Step Functionsによる並列処理
+- S3による大容量ストレージ
+
+### セキュリティ
+- VPC内での実行
+- IAMロールによる最小権限の原則
+- S3暗号化によるデータ保護
+
+### 運用性
+- CloudWatchによるモニタリング
+- GitHub Actionsによる自動デプロイ
+- CDKによるインフラ管理
+
+### コスト最適化
+- Fargateによるサーバーレス運用
+- Step Functionsによる効率的な処理
+- 無料枠の活用
+
+## 性能特性
+
+### 処理能力
+- 1バッチあたり最大500枚の集合写真
+- 1人あたり最大10枚の個人写真
+- 並列処理による高速化
+
+### レスポンス時間
+- 写真1枚あたりの処理時間: 約1-2秒
+- バッチ処理の完了時間: 約5-10分（500枚の場合）
+
+### 精度
+- 顔認識の精度: 80%以上（類似度閾値による調整可能）
+- 誤検知率: 5%未満
+
+## コスト見積もり
+
+### 無料枠
+- Rekognition: 月5,000回まで無料
+- S3: 月5GBまで無料
+- ECS: 月750時間まで無料
+
+### 想定コスト（月間）
+- 基本利用料: 無料枠内
+- 大規模利用時: $1-2程度
+
+## 制限事項
+
+### 技術的制限
+- 1枚の写真あたりの最大サイズ: 15MB
+- 検出可能な顔の最小サイズ: 40x40ピクセル
+- 同時実行可能なタスク数: 10
+
+### 運用上の制限
+- バッチ処理の最大枚数: 500枚
+- 処理可能な画像形式: JPEG, PNG
+- 顔の向きや照明条件による認識精度の変動
+
+## 今後の展開
+
+### 予定している機能追加
+- リアルタイム処理機能
+- WebUIの実装
+- 複数人の一括検索
+
+### 改善計画
+- 認識精度の向上
+- 処理速度の最適化
+- コスト効率の改善
 
 ## システム構成
 
